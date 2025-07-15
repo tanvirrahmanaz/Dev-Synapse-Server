@@ -135,6 +135,38 @@ async function run() {
             res.send(commentResult);
         });
 
+
+        app.get('/posts/by-email/:email', verifyToken, async (req, res) => {
+    const email = req.params.email;
+    const limit = parseInt(req.query.limit) || 0; // limit না থাকলে সব পোস্ট আসবে
+    const query = { authorEmail: email };
+    const result = await postsCollection.find(query).sort({ postTime: -1 }).limit(limit).toArray();
+    res.send(result);
+});
+
+// নির্দিষ্ট ব্যবহারকারীর পোস্ট সংখ্যা আনার জন্য API
+app.get('/posts/count/:email', verifyToken, async(req, res) => {
+    const email = req.params.email;
+    const query = { authorEmail: email };
+    const count = await postsCollection.countDocuments(query);
+    res.send({ count });
+});
+
+// ব্যবহারকারীর তথ্য আনার জন্য API (ব্যাজ চেক করার জন্য)
+app.get('/users/:email', async (req, res) => {
+    const email = req.params.email;
+    const result = await usersCollection.findOne({ email: email });
+    res.send(result);
+});
+
+// পোস্ট ডিলিট করার জন্য API
+app.delete('/posts/:id', verifyToken, async(req, res) => {
+    const id = req.params.id;
+    const query = { _id: new ObjectId(id) };
+    const result = await postsCollection.deleteOne(query);
+    res.send(result);
+});
+
     } finally {
         // await client.close();
     }
