@@ -172,17 +172,45 @@ app.post('/announcements', verifyFirebaseToken, verifyAdmin, async (req, res) =>
         });
 
         app.patch('/posts/vote/:id', verifyFirebaseToken, async (req, res) => {
-            const id = req.params.id;
-            const { voteType } = req.body;
-            const userEmail = req.user.email;
-            const post = await postsCollection.findOne({ _id: new ObjectId(id) });
-            const currentVoteArray = voteType === 'upVote' ? 'upVotedBy' : 'downVotedBy';
-            const oppositeVoteArray = voteType === 'upVote' ? 'downVotedBy' : 'upVotedBy';
-            const hasVoted = post[currentVoteArray].includes(userEmail);
-            const updateDoc = hasVoted ? { $pull: { [currentVoteArray]: userEmail } } : { $addToSet: { [currentVoteArray]: userEmail }, $pull: { [oppositeVoteArray]: userEmail } };
-            const result = await postsCollection.updateOne({ _id: new ObjectId(id) }, updateDoc);
-            res.send(result);
-        });
+    const id = req.params.id;
+    const { voteType } = req.body;
+    const userEmail = req.user.email;
+
+    const filter = { _id: new ObjectId(id) };
+
+    try {
+        const post = await postsCollection.findOne(filter);
+        if (!post) {
+            return res.status(404).send({ message: 'Post not found' });
+        }
+
+        const currentVoteArray = voteType === 'upVote' ? 'upVotedBy' : 'downVotedBy';
+        const oppositeVoteArray = voteType === 'upVote' ? 'downVotedBy' : 'upVotedBy';
+
+        // এখানে ?? [] ব্যবহার করে নিশ্চিত করা হচ্ছে যে, যদি অ্যারেটি না থাকে,
+        // তাহলে একটি খালি অ্যারে ব্যবহার করা হবে। এতে আর ক্র্যাশ করবে না।
+        const hasVoted = (post[currentVoteArray] ?? []).includes(userEmail);
+        
+        let updateDoc = {};
+
+        if (hasVoted) {
+            // কেস ১: ব্যবহারকারী একই বাটনে আবার ক্লিক করেছে (ভোট বাতিল)
+            updateDoc = { $pull: { [currentVoteArray]: userEmail } };
+        } else {
+            // কেস ২: ব্যবহারকারী নতুন ভোট দিয়েছে
+            updateDoc = {
+                $addToSet: { [currentVoteArray]: userEmail },
+                $pull: { [oppositeVoteArray]: userEmail }
+            };
+        }
+
+        const result = await postsCollection.updateOne(filter, updateDoc);
+        res.send(result);
+
+    } catch (error) {
+        res.status(500).send({ message: 'Failed to process vote', error });
+    }
+});
         
         app.post('/comments', verifyFirebaseToken, async (req, res) => {
             const comment = { ...req.body, timestamp: new Date() };
@@ -281,6 +309,42 @@ app.post('/announcements', verifyFirebaseToken, verifyAdmin, async (req, res) =>
             const result = await reportsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
             res.send(result);
         });
+
+
+        // ==============================================================
+// PERSONALIZED ANNOUNCEMENT APIs
+// ==============================================================
+
+// ১. একজন নির্দিষ্ট ব্যবহারকারীর জন্য নতুন অ্যানাউন্সমেন্টের সংখ্যা আনার API
+app.get('/announcements/new-count', verifyFirebaseToken, async (req, res) => {
+    try {
+        const userEmail = req.user.email;
+        const user = await usersCollection.findOne({ email: userEmail });
+
+        // যদি ব্যবহারকারীর শেষ ভিজিটের সময় না থাকে, তাহলে সব অ্যানাউন্সমেন্টকেই নতুন ধরা হবে
+        const lastViewTime = user?.lastSeenAnnouncements || new Date("2000-01-01T00:00:00Z");
+
+        // শেষ ভিজিটের পর কতগুলো নতুন অ্যানাউন্সমেন্ট এসেছে তা গণনা করা
+        const newAnnouncementsCount = await announcementsCollection.countDocuments({
+            timestamp: { $gt: new Date(lastViewTime) }
+        });
+        
+        res.send({ count: newAnnouncementsCount });
+    } catch (error) {
+        res.status(500).send({ message: 'Failed to fetch new announcement count' });
+    }
+});
+
+// ২. ব্যবহারকারীর অ্যানাউন্সমেন্ট দেখার সময় আপডেট করার API
+app.post('/users/viewed-announcements', verifyFirebaseToken, async (req, res) => {
+    const userEmail = req.user.email;
+    const filter = { email: userEmail };
+    const updateDoc = {
+        $set: { lastSeenAnnouncements: new Date() }
+    };
+    const result = await usersCollection.updateOne(filter, updateDoc);
+    res.send(result);
+});
 
     } finally {
         // The connection will remain open for the running server
