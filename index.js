@@ -450,6 +450,55 @@ async function run() {
         });
 
 
+// ==============================================================
+// ANALYTICS & PUBLIC DATA APIs
+// ==============================================================
+
+// সবচেয়ে জনপ্রিয় ট্যাগগুলো আনার জন্য API
+app.get('/tags/popular', async (req, res) => {
+    try {
+        const pipeline = [
+            // ধাপ ১: tags অ্যারের প্রতিটি ট্যাগকে আলাদা ডকুমেন্টে পরিণত করা
+            { $unwind: '$tags' },
+            
+            // ধাপ ২: ট্যাগ অনুযায়ী গ্রুপ করা এবং প্রতিটি ট্যাগের সংখ্যা গণনা করা
+            { $group: { _id: '$tags', count: { $sum: 1 } } },
+            
+            // ধাপ ৩: সবচেয়ে বেশি ব্যবহৃত ট্যাগ অনুযায়ী সর্ট করা
+            { $sort: { count: -1 } },
+            
+            // ধাপ ৪: প্রথম ৫টি জনপ্রিয় ট্যাগ নেওয়া
+            { $limit: 5 },
+
+            // ধাপ ৫: আউটপুটকে সুন্দর ফরম্যাটে সাজানো
+            { $project: { _id: 0, name: '$_id', count: '$count' } }
+        ];
+
+        const popularTags = await postsCollection.aggregate(pipeline).toArray();
+        res.send(popularTags);
+    } catch (error) {
+        res.status(500).send({ message: "Failed to fetch popular tags" });
+    }
+});
+
+app.get('/community-stats', async (req, res) => {
+    try {
+        const postsCount = await postsCollection.countDocuments();
+        const usersCount = await usersCollection.countDocuments();
+        const commentsCount = await commentsCollection.countDocuments();
+        
+        res.send({
+            totalPosts: postsCount,
+            totalUsers: usersCount,
+            totalComments: commentsCount
+        });
+    } catch (error) {
+        res.status(500).send({ message: "Failed to fetch community stats" });
+    }
+});
+
+
+
 
 
     } finally {
@@ -459,4 +508,5 @@ async function run() {
 run().catch(console.dir);
 
 app.get('/', (req, res) => res.send('Forum server is running!'));
-app.listen(port, () => console.log(`Server is running on port: ${port}`));  
+run().catch(console.dir);
+module.exports = app;
